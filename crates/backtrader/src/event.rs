@@ -1,14 +1,15 @@
 use crate::{
     data::*,
-    order::{Fill, Order},
+    order::{Fill, Order}, errors::ErrorRepr,
 };
 
 use super::strategy::Decision;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Event {
     Market(Bar),
-    Signal(Decision),
+    Decision(Decision),
     Order(Order),
     Fill(Fill),
+    Error(ErrorRepr)
 }
