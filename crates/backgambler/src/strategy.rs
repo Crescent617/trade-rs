@@ -15,6 +15,7 @@ pub enum DecisionKind {
     Hold,
     Buy,
     Sell,
+    Close,
 }
 
 pub trait DecisionMaker {

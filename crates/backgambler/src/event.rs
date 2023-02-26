@@ -1,6 +1,6 @@
 use crate::{
     data::*,
-    order::{Fill, Order}, errors::ErrorRepr,
+    order::{Fill, Order},
 };
 
 use super::strategy::Decision;
@@ -11,5 +11,4 @@ pub enum Event {
     Decision(Decision),
     Order(Order),
     Fill(Fill),
-    Error(ErrorRepr)
 }

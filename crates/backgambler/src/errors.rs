@@ -4,7 +4,11 @@ use thiserror::Error;
 #[derive(Error, Debug, Clone)]
 pub enum ErrorRepr {
     #[error("out of bounds, {}", .0)]
-    OutOfBounds(&'static str),
+    OutOfBounds(String),
     #[error("not exists, {}", .0)]
     NotExists(&'static str),
+    #[error("not satisfied: {}", .0)]
+    NotSatisfied(&'static str),
+    #[error("expired: {}", .0)]
+    OrderExpired(String),
 }

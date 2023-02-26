@@ -1,3 +1,4 @@
+pub mod broker;
 pub mod data;
 pub mod errors;
 pub mod event;
@@ -5,18 +6,17 @@ pub mod gambler;
 pub mod order;
 pub mod portfolio;
 pub mod strategy;
+pub mod position;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use more_asserts::*;
+    use std::sync::Arc;
 
     use parking_lot::Mutex;
 
     use crate::{
-        data::Bar,
-        gambler::{Casino, SimulatedBroker},
-        portfolio::Statistics,
+        data::Bar, gambler::Casino, portfolio::Statistics,
         strategy::DecisionMaker,
     };
 
@@ -26,6 +26,7 @@ mod tests {
     struct TestStrategy {
         idx: i32,
     }
+
     impl DecisionMaker for TestStrategy {
         fn make_decision(&mut self, data: &Bar) -> strategy::Decision {
             self.idx += 1;
@@ -44,7 +45,7 @@ mod tests {
     #[tokio::test]
     async fn test_gambler() {
         let portfolio = portfolio::SimplePortfolioBuilder::default()
-            .order_manager(order::SimpleOrderManager { size: 100 })
+            .order_manager(order::FixedSizeOrderManager { size: 100 })
             .cash(10000.0)
             .build()
             .unwrap();
@@ -61,10 +62,12 @@ mod tests {
             .sym("test")
             .strategy(TestStrategy { idx: 0 })
             .data(bars.into_iter())
-            .broker(SimulatedBroker {
-                latest: None,
-                commission: 0.001,
-            })
+            .broker(
+                broker::SimulatedBrokerBuilder::default()
+                    .commission(0.001)
+                    .build()
+                    .unwrap(),
+            )
             .portfolio(Arc::clone(&portfolio))
             .build()
             .unwrap();
@@ -73,13 +76,16 @@ mod tests {
 
         let p = portfolio.lock();
         assert_eq!(p.init_cash, 10_000.0);
-        assert!((10_000.0 - 700.0 + 100.0 - 100.0 - 0.9 - p.cash).abs() <= 0.001);
+        assert_le!(
+            (10_000.0 - 700.0 + 100.0 - 100.0 - 0.9 - p.cash).abs(),
+            0.01
+        );
     }
 
     #[tokio::test]
     async fn test_casino() {
         let portfolio = portfolio::SimplePortfolioBuilder::default()
-            .order_manager(order::SimpleOrderManager { size: 100 })
+            .order_manager(order::FixedSizeOrderManager { size: 100 })
             .cash(10000.0)
             .build()
             .unwrap();
@@ -96,10 +102,12 @@ mod tests {
             .sym("test")
             .strategy(TestStrategy { idx: 0 })
             .data(bars.into_iter())
-            .broker(SimulatedBroker {
-                latest: None,
-                commission: 0.001,
-            })
+            .broker(
+                broker::SimulatedBrokerBuilder::default()
+                    .commission(0.001)
+                    .build()
+                    .unwrap(),
+            )
             .portfolio(Arc::clone(&portfolio))
             .build()
             .unwrap();
@@ -111,17 +119,21 @@ mod tests {
 
         let p = portfolio.lock();
         assert_eq!(p.init_cash, 10_000.0);
-        assert_le!((10_000.0 - 700.0 + 100.0 - 100.0 - 0.9 - p.cash).abs(), 0.01);
+        assert_le!(
+            (10_000.0 - 700.0 + 100.0 - 100.0 - 0.9 - p.cash).abs(),
+            0.01
+        );
     }
 
     #[derive(Clone, Default, Debug)]
     struct TestStrategy2 {
         pending_ord: i32,
-        prev_close: std::collections::VecDeque<f32>,
+        prev_close: std::collections::VecDeque<f64>,
         idx: i32,
         bar_executed: i32,
         qty: i32,
     }
+
     impl DecisionMaker for TestStrategy2 {
         fn make_decision(&mut self, data: &Bar) -> strategy::Decision {
             let mut d = strategy::Decision {
@@ -165,12 +177,15 @@ mod tests {
             }
         }
 
-        fn on_order(&mut self, _: &order::Order) {
-            self.pending_ord += 1;
+        fn on_order(&mut self, ord: &order::Order) {
+            use order::OrderStatus::*;
+            match ord.status {
+                Created => self.pending_ord += 1,
+                _ => self.pending_ord -= 1,
+            }
         }
 
         fn on_fill(&mut self, fill: &order::Fill) {
-            self.pending_ord -= 1;
             self.bar_executed = self.idx;
             self.qty += fill.qty;
             if fill.qty > 0 {
@@ -184,7 +199,7 @@ mod tests {
     #[tokio::test]
     async fn test_real_data() {
         let portfolio = portfolio::SimplePortfolioBuilder::default()
-            .order_manager(order::SimpleOrderManager { size: 1 })
+            .order_manager(order::FixedSizeOrderManager { size: 1 })
             .cash(100000.0)
             .build()
             .unwrap();
@@ -196,29 +211,28 @@ mod tests {
             .sym("test")
             .strategy(TestStrategy2::default())
             .data(bars.iter().cloned())
-            .broker(SimulatedBroker {
-                latest: None,
-                commission: 0.0,
-            })
+            .broker(broker::SimulatedBrokerBuilder::default().build().unwrap())
             .portfolio(Arc::clone(&portfolio))
             .build()
             .unwrap();
+
         // g.add_event_hook(|s, evt| {
         //     if matches!(evt, event::Event::Market(_)) {
         //         println!("EVENT ({}): {:?}", s, evt);
         //     }
         // });
+
         g.run().await;
 
         let p = portfolio.lock();
         let stats = p.stats();
+        stats.printstd();
 
-        // calculated by py
-        // backtrader
+        // calculated by py backtrader
         assert_eq!(((stats.init_cash + stats.pnl) * 100.0).round(), 10001968.0);
     }
 
-    fn build_bar(open: f32, close: f32) -> Bar {
+    fn build_bar(open: f64, close: f64) -> Bar {
         Bar {
             sym: "test".into(),
             time: chrono::Utc::now(),
@@ -226,7 +240,7 @@ mod tests {
             close,
             high: 0.0,
             low: 0.0,
-            vol: 0,
+            vol: 10000.0,
         }
     }
 }
